@@ -50,7 +50,7 @@ def main():
     parser.add_argument(
         "-o",
         "--output",
-        default="testing-data.csv",
+        default="online_spices_validation.csv",
         help="Output CSV filename (default: training-data.csv)"
     )
 
