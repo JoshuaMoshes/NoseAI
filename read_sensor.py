@@ -1,6 +1,7 @@
 import serial
 import json
 import numpy as np
+from model_abc import Model
 
 # Keys matching SmellNET dataset
 SMELLNET_FEATURE_KEYS = [
@@ -46,9 +47,12 @@ def run_pipeline(model, port=SERIAL_PORT, baud=115200):
             print(f"idx={packet['idx']:05d} → {label}")
 
 if __name__ == "__main__":
-    class DummyModel:
+    class DummyModel(Model):
         def predict(self, X):
             return ["apple"] * len(X)
 
     model = DummyModel()
-    run_pipeline(model)
+    try:
+        run_pipeline(model)
+    except KeyboardInterrupt:
+        print("Exiting...")
