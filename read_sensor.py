@@ -1,13 +1,15 @@
 import serial
 import json
 import numpy as np
-from model_abc import Model
+from models.model_abc import Model
+from models.transformer import TransformerModel, ScentTransformerNet
+
 
 # Keys matching SmellNET dataset
 SMELLNET_FEATURE_KEYS = [
     "NO2", "C2H5OH", "VOC", "CO",
     "Alcohol", "LPG", "Benzene",
-    "Temperature", "Pressure", "Humidity", "Gas_Resistance"
+    "Temperature", "Pressure", "Humidity", "Gas_Resistance", "Altitude"
 ]
 
 # Extra sensors not in SmellNET
@@ -20,7 +22,7 @@ SERIAL_PORT = "/dev/cu.usbserial-5AA60782871"
 def reading_to_vector(reading: dict, keys: list) -> np.ndarray:
     return np.array([reading[k] for k in keys], dtype=np.float32)
 
-def run_pipeline(model, port=SERIAL_PORT, baud=115200):
+def run_pipeline(models: list[Model], port=SERIAL_PORT, baud=115200):
     with serial.Serial(port, baud, timeout=2) as ser:
         print("Waiting for sensor warmup...")
         while True:
@@ -39,20 +41,25 @@ def run_pipeline(model, port=SERIAL_PORT, baud=115200):
 
             # SmellNET-compatible feature vector for inference
             features = reading_to_vector(packet, SMELLNET_FEATURE_KEYS)
-            label = model.predict([features])[0]
+            for model in models:
+                name = model.__class__.__name__
 
-            # Full vector including extra sensors
-            full_features = reading_to_vector(packet, ALL_FEATURE_KEYS)
+                prediction = model.predict([features])
 
-            print(f"idx={packet['idx']:05d} → {label}")
+                print(f"Features: {features}")
+                print(f"Model {name} predicted: {prediction}")
+
+                label = prediction[0]
+
+                # Full vector including extra sensors
+                # full_features = reading_to_vector(packet, ALL_FEATURE_KEYS)
+
+                print(f"idx={packet['idx']:05d}: {name}: {label}")
 
 if __name__ == "__main__":
-    class DummyModel(Model):
-        def predict(self, X):
-            return ["apple"] * len(X)
+    model = TransformerModel.load("transformer.pt")
 
-    model = DummyModel()
     try:
-        run_pipeline(model)
+        run_pipeline([model])
     except KeyboardInterrupt:
         print("Exiting...")
