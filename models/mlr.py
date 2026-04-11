@@ -122,20 +122,16 @@ class MLRModel:
         class_index = int(np.argmax(P))
         return self.classes[class_index]
 
-    def predict_from_values(self, values):
+    def predict(self, X):
         if self.W is None:
-            raise ValueError("Model must be fitted before calling predict_from_values().")
+            raise ValueError("Model must be fitted before calling predict().")
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X[np.newaxis, :]
+        X_norm = self.min_max_transform(X)
+        return np.array([self.predict_one(x) for x in X_norm])
 
-        if len(values) != len(self.feature_columns):
-            raise ValueError(
-                f"Expected {len(self.feature_columns)} values, but got {len(values)}."
-            )
-
-        x = np.array(values, dtype=float)
-        x_normalized = self.min_max_transform(x)
-        return self.predict_one(x_normalized)
-
-    def predict(self, dataframe, target_column, dataset_name="dataset"):
+    def _predict(self, dataframe, target_column, dataset_name="dataset"):
         X_test = dataframe[self.feature_columns].to_numpy(dtype=float)
         y_test = dataframe[target_column].to_numpy()
         X_test = self.min_max_transform(X_test)
@@ -178,7 +174,7 @@ class MLRModel:
 
     def evaluate(self, dataframe, target_column, dataset_name="dataset"):
         start_time = time.time()
-        predictions, y_true = self.predict(dataframe, target_column, dataset_name)
+        predictions, y_true = self._predict(dataframe, target_column, dataset_name)
         total_time = time.time() - start_time
         accuracy = calculate_accuracy(y_true, predictions)
 
@@ -204,6 +200,6 @@ if __name__ == "__main__":
 
     sample_values = [54, 94, 130, 765, 2, 12, 0, 33.59, 688.6, 100.0, 0.0, 3170.54, 0, 0]
     sample_values = np.array(sample_values, dtype=np.float32).reshape(1, -1)
-    print("Predicted:", model.predict_from_values(sample_values[0]))
+    print("Predicted:", model.predict(sample_values[0]))
 
     model.save("mlr.pkl")

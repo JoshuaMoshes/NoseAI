@@ -242,10 +242,19 @@ class TransformerModel(Model):
         return model
 
 if __name__ == "__main__":
-    trainingDataDataFrame = pd.read_csv("training-data.csv")
-    testingDataDataFrame = pd.read_csv("testing-data.csv")
+    from sklearn.model_selection import train_test_split
 
     TARGET_COLUMN = "type"
+    df = pd.read_csv("collected-data.csv")
+
+    TARGET_COLUMN = "type"
+
+    X = df.drop(columns=[TARGET_COLUMN]).to_numpy(dtype=float)
+    y = df[TARGET_COLUMN].to_numpy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
 
     model = TransformerModel(
         d_model=32,
@@ -259,17 +268,17 @@ if __name__ == "__main__":
     )
 
     model.fit(
-        trainingDataDataFrame.drop(columns=[TARGET_COLUMN]).to_numpy(dtype=float),
-        trainingDataDataFrame[TARGET_COLUMN].to_numpy()
+        X_train,
+        y_train
     )
 
     test_model(
         model,
-        testingDataDataFrame.drop(columns=[TARGET_COLUMN]).to_numpy(dtype=float),
-        testingDataDataFrame[TARGET_COLUMN].to_numpy()
+        X_test,
+        y_test
     )
 
-    sample_values = [54, 94, 130, 765, 2, 12, 0, 33.59, 688.6, 100.0, 0.0, 3170.54]
+    sample_values = [54, 94, 130, 765, 2, 12, 0, 33.59, 688.6, 100.0, 0.0, 3170.54, 0, 0]
     sample_values = np.array(sample_values, dtype=np.float32).reshape(1, -1)
     print("Predicted:", model.predict(sample_values))
 

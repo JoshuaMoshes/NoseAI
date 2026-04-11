@@ -270,3 +270,87 @@ class LSTMModel(Model):
         model.net.eval()
         model._frame_buffer = deque(maxlen=model.window + 1)
         return model
+
+    def fit_from_csv(self, csv_path: str, target_column: str = "type",
+                 ckpt_path: str = "best_model.pt"):
+        """Train from a flat collected-data.csv instead of directory structure."""
+        df = pd.read_csv(csv_path)
+        feature_cols = [c for c in df.columns if c != target_column]
+
+        # split into contiguous same-label sessions
+        labels = df[target_column].values
+        sessions = []
+        run_start = 0
+        for i in range(1, len(labels) + 1):
+            if i == len(labels) or labels[i] != labels[run_start]:
+                sessions.append((df.iloc[run_start:i][feature_cols], labels[run_start]))
+                run_start = i
+
+        # build class mapping
+        classes = sorted({lbl for _, lbl in sessions})
+        self.class_to_idx = {c: i for i, c in enumerate(classes)}
+        self.idx_to_class = {v: k for k, v in self.class_to_idx.items()}
+
+        # build windows with FOTD
+        all_windows, all_labels = [], []
+        for sess_df, lbl in sessions:
+            arr = sess_df.values.astype(np.float32)
+            diff = arr[1:] - arr[:-1]
+            T = diff.shape[0]
+            for start in range(0, T - self.window + 1, self.stride):
+                all_windows.append(diff[start : start + self.window])
+                all_labels.append(self.class_to_idx[lbl])
+
+        X = np.stack(all_windows, axis=0)
+        y = np.array(all_labels, dtype=np.int64)
+
+        N, W, F = X.shape
+        X_flat = X.reshape(N * W, F)
+        self._fit_norm(X_flat)
+        X_flat = self._transform_norm(X_flat)
+        X = X_flat.reshape(N, W, F).astype(np.float32)
+
+        num_classes = len(self.class_to_idx)
+        print(f"{num_classes} classes: {', '.join(sorted(self.class_to_idx))}")
+        print(f"Training windows: {len(X)}")
+
+        input_size = F
+        self.net = OdorLSTM(
+            input_size=input_size,
+            hidden_size=self.hidden,
+            num_layers=self.n_layers,
+            num_classes=num_classes,
+            dropout=self.dropout,
+        ).to(self.device)
+
+        loader = DataLoader(_WindowDataset(X, y), batch_size=self.batch_size, shuffle=True)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.net.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.step_size, gamma=self.gamma)
+
+        best_top1 = 0.0
+        for epoch in range(1, self.epochs + 1):
+            self.net.train()
+            total_loss = correct = total = 0
+            for X_b, y_b in loader:
+                X_b, y_b = X_b.to(self.device), y_b.to(self.device)
+                optimizer.zero_grad()
+                logits = self.net(X_b)
+                loss = criterion(logits, y_b)
+                loss.backward()
+                optimizer.step()
+                n = X_b.size(0)
+                total_loss += loss.item() * n
+                correct += logits.argmax(dim=1).eq(y_b).sum().item()
+                total += n
+            scheduler.step()
+            top1 = correct / total
+            if epoch % 10 == 0 or epoch == 1:
+                print(f"  epoch {epoch:>4}  loss: {total_loss/total:.4f}  acc: {top1*100:.2f}%")
+            if top1 > best_top1:
+                best_top1 = top1
+
+        print(f"Best Top-1: {best_top1*100:.2f}%")
+        self.net.eval()
+        self.save(ckpt_path)
+        print(f"Saved to {ckpt_path}")

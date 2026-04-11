@@ -17,7 +17,7 @@ TEST_DIRS = [
 CKPT_PATH = "best_model.pt"
 SERIAL_PORT = "/dev/cu.usbserial-5AA60782871"
 
-WINDOW     = 50
+WINDOW     = 10
 STRIDE     = 10
 HIDDEN     = 128
 N_LAYERS   = 2
@@ -40,15 +40,29 @@ SMELLNET_FEATURE_KEYS = [
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_csvs_from_dir(root_dir):
+TRAIN_CSV = "collected-data.csv"
+TARGET_COLUMN = "type"
+
+ALL_FEATURE_KEYS = [
+    "NO2", "C2H5OH", "VOC", "CO",
+    "Alcohol", "LPG", "Benzene",
+    "Temperature", "Pressure", "Humidity", "Gas_Resistance", "Altitude",
+    "MQ5", "MP503"
+]
+
+def load_sessions_from_csv(csv_path):
+    """Split a flat CSV into contiguous same-label sessions for FOTD."""
+    df = pd.read_csv(csv_path)
+    feature_cols = [c for c in df.columns if c != TARGET_COLUMN]
     items = []
-    for class_name in sorted(os.listdir(root_dir)):
-        class_path = os.path.join(root_dir, class_name)
-        if not os.path.isdir(class_path):
-            continue
-        for csv_path in sorted(glob.glob(os.path.join(class_path, "*.csv"))):
-            df = pd.read_csv(csv_path)
-            items.append((df, class_name))
+    # group contiguous runs of the same label
+    labels = df[TARGET_COLUMN].values
+    run_start = 0
+    for i in range(1, len(labels) + 1):
+        if i == len(labels) or labels[i] != labels[run_start]:
+            session_df = df.iloc[run_start:i][feature_cols]
+            items.append((session_df, labels[run_start]))
+            run_start = i
     return items
 
 
@@ -65,18 +79,11 @@ def sliding_windows(arr, window, stride):
     return windows
 
 
-def build_dataset(root_dirs, class_to_idx=None, norm_mean=None, norm_std=None, fit_norm=False):
-    """
-    Returns X (N, W, F), y (N,), class_to_idx, norm_mean, norm_std.
-    fit_norm=True: compute mean/std from this data (training set).
-    fit_norm=False: use the provided mean/std (test / live set).
-    """
-    if isinstance(root_dirs, str):
-        root_dirs = [root_dirs]
-
-    raw = []
-    for d in root_dirs:
-        raw.extend(load_csvs_from_dir(d))
+def build_dataset(source, class_to_idx=None, norm_mean=None, norm_std=None, fit_norm=False):
+    if isinstance(source, str):
+        raw = load_sessions_from_csv(source)
+    else:
+        raw = source  # already a list of (df, label)
 
     if class_to_idx is None:
         classes = sorted({lbl for _, lbl in raw})
@@ -87,21 +94,21 @@ def build_dataset(root_dirs, class_to_idx=None, norm_mean=None, norm_std=None, f
         if lbl not in class_to_idx:
             continue
         diff = apply_fotd(df)
+        if len(diff) < WINDOW:
+            continue  # session too short
         wins = sliding_windows(diff, WINDOW, STRIDE)
         all_windows.extend(wins)
         all_labels.extend([class_to_idx[lbl]] * len(wins))
 
-    X = np.stack(all_windows, axis=0)   # (N, W, F)
+    X = np.stack(all_windows, axis=0)
     y = np.array(all_labels, dtype=np.int64)
 
     N, W, F = X.shape
     X_flat = X.reshape(N * W, F)
-
     if fit_norm:
         norm_mean = X_flat.mean(axis=0)
         norm_std  = X_flat.std(axis=0)
         norm_std[norm_std == 0] = 1.0
-
     X_flat = (X_flat - norm_mean) / norm_std
     X = X_flat.reshape(N, W, F).astype(np.float32)
     return X, y, class_to_idx, norm_mean, norm_std
@@ -269,10 +276,18 @@ def main():
     print(f"Using device: {device}")
 
     # --- Train ---
-    print("\nLoading training data...")
-    X_train, y_train, class_to_idx, norm_mean, norm_std = build_dataset(
-        TRAIN_DIR, fit_norm=True
+    print("\nLoading data...")
+    sessions = load_sessions_from_csv(TRAIN_CSV)
+
+    X_all, y_all, class_to_idx, norm_mean, norm_std = build_dataset(
+        TRAIN_CSV, fit_norm=True
     )
+
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_all, y_all, test_size=0.2, random_state=42, stratify=y_all
+    )
+
     idx_to_class = {v: k for k, v in class_to_idx.items()}
     num_classes = len(class_to_idx)
     print(f"  {num_classes} classes: {', '.join(sorted(class_to_idx))}")
@@ -313,11 +328,6 @@ def main():
     model.load_state_dict(torch.load(CKPT_PATH, map_location=device))
 
     # --- Evaluate on test set ---
-    print("\nLoading test data...")
-    X_test, y_test, _, _, _ = build_dataset(
-        TEST_DIRS, class_to_idx=class_to_idx,
-        norm_mean=norm_mean, norm_std=norm_std, fit_norm=False,
-    )
     print(f"  Test windows: {len(X_test)}")
     test_loader = DataLoader(
         SensorDataset(X_test, y_test),
