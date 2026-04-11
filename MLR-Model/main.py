@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import pickle
 import time
 
 trainingDataDataFrame = pd.read_csv("../training-data.csv")
@@ -167,6 +168,18 @@ class MLRModel:
                 )
 
         return np.array(predictions), y_test
+
+    def save(self, path: str):
+        if self.W is None:
+            raise ValueError("Model has not been trained yet. Nothing to save.")
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(path: str) -> "MLRModel":
+        with open(path, "rb") as f:
+            model = pickle.load(f)
+        return model
 
     def evaluate(self, dataframe, target_column, dataset_name="dataset"):
         start_time = time.time()
