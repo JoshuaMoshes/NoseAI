@@ -51,6 +51,9 @@ def run_pipeline(models: list[Model], port=SERIAL_PORT, baud=115200):
 
                 label = prediction[0]
 
+                if label is None:
+                    continue
+
                 # Full vector including extra sensors
                 # full_features = reading_to_vector(packet, ALL_FEATURE_KEYS)
 
