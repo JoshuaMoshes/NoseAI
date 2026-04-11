@@ -207,6 +207,7 @@ class LSTMModel(Model):
         print(f"\nBest Top-1: {best_top1 * 100:.2f}%  checkpoint -> {ckpt_path}")
         self.net.load_state_dict(torch.load(ckpt_path, map_location=self.device))
         self.net.eval()
+        self.save(ckpt_path)  # overwrite with full LSTMModel object so load() works
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
