@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pickle
-from model_abc import Model, test_model
+from .model_abc import Model, test_model
 
 
 class KNNModel(Model):
