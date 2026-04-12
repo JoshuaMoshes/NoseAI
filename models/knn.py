@@ -83,6 +83,29 @@ class KNNModel(Model):
         predictions = [self._predict_one(x) for x in X_norm]
         return np.array(predictions)
 
+    def _predict_proba_one(self, x_test: np.ndarray) -> dict:
+        if self.X_train is None or self.y_train is None:
+            raise ValueError("Model has not been trained yet.")
+
+        distances = []
+        for i in range(len(self.X_train)):
+            dist = self._euclidean_distance(self.X_train[i], x_test)
+            distances.append((dist, self.y_train[i]))
+        distances.sort(key=lambda item: item[0])
+        nearest = distances[:self.k]
+
+        label_counts: dict[str, int] = {}
+        for _, label in nearest:
+            label_counts[label] = label_counts.get(label, 0) + 1
+        return {label: count / self.k for label, count in label_counts.items()}
+
+    def predict_proba(self, X: np.ndarray | list[np.ndarray]) -> list[dict]:
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X[np.newaxis, :]
+        X_norm = self._transform_min_max(X)
+        return [self._predict_proba_one(x) for x in X_norm]
+
     def save(self, path: str):
         if self.X_train is None or self.y_train is None:
             raise ValueError("Model has not been trained yet. Nothing to save.")

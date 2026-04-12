@@ -80,15 +80,18 @@ def run_pipeline(models: list[Model], port=SERIAL_PORT, baud=115200):
     for packet in read_packets(port, baud):
         features = reading_to_vector(packet, ALL_FEATURE_KEYS)
 
-        #print(f"idx={packet['idx']:05d}: features={features}")
         print("\n\n")
         for model in models:
             name = model.__class__.__name__
-            prediction = model.predict([features])
-            label = prediction[0]
-            if label is None:
+            proba = model.predict_proba([features])[0]
+            if proba is None:
                 continue
-            print(f"idx={packet['idx']:05d}: {name}: {label}")
+            label = max(proba, key=proba.get)
+            scores = "  ".join(
+                f"{k}: {v:.1%}"
+                for k, v in sorted(proba.items(), key=lambda x: -x[1])
+            )
+            print(f"idx={packet['idx']:05d}: {name}: {label}  [{scores}]")
 
 
 if __name__ == "__main__":

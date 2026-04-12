@@ -131,6 +131,22 @@ class MLRModel:
         X_norm = self.min_max_transform(X)
         return np.array([self.predict_one(x) for x in X_norm])
 
+    def _predict_proba_one(self, x: np.ndarray) -> dict:
+        Z = x @ self.W + self.b
+        Z_shifted = Z - Z.max()
+        exp_Z = np.exp(Z_shifted)
+        P = exp_Z / exp_Z.sum()
+        return {cls: float(P[i]) for i, cls in enumerate(self.classes)}
+
+    def predict_proba(self, X) -> list[dict]:
+        if self.W is None:
+            raise ValueError("Model must be fitted before calling predict_proba().")
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X[np.newaxis, :]
+        X_norm = self.min_max_transform(X)
+        return [self._predict_proba_one(x) for x in X_norm]
+
     def _predict(self, dataframe, target_column, dataset_name="dataset"):
         X_test = dataframe[self.feature_columns].to_numpy(dtype=float)
         y_test = dataframe[target_column].to_numpy()

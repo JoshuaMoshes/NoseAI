@@ -258,6 +258,40 @@ class LSTMModel(Model):
         else:
             raise ValueError(f"Expected 2D or 3D input, got {X.ndim}D.")
 
+    def predict_proba(self, X: np.ndarray) -> list[dict | None]:
+        """
+        Stream mode — X shape (N, F): same rolling-buffer logic as predict(),
+        but returns {label: probability} dicts instead of argmax labels.
+        Returns None for frames until the buffer warms up.
+        """
+        if self.net is None or self.norm_mean is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+
+        X = np.asarray(X, dtype=np.float32)
+        if X.ndim != 2:
+            raise ValueError("predict_proba expects 2D input (N, F) for stream mode.")
+
+        results: list[dict | None] = []
+        for frame in X:
+            self._frame_buffer.append(frame)
+            if len(self._frame_buffer) >= self.window + 1:
+                frames = np.array(self._frame_buffer)
+                diff = (frames[1:] - frames[:-1]).astype(np.float32)
+                diff_norm = self._transform_norm(diff)
+                tensor = (
+                    torch.tensor(diff_norm, dtype=torch.float32)
+                    .unsqueeze(0)
+                    .to(self.device)
+                )
+                self.net.eval()
+                with torch.no_grad():
+                    logits = self.net(tensor)
+                    probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                results.append({self.idx_to_class[i]: float(p) for i, p in enumerate(probs)})
+            else:
+                results.append(None)
+        return results
+
     def save(self, path: str):
         if self.net is None:
             raise ValueError("Model not fitted. Nothing to save.")

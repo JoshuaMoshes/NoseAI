@@ -229,6 +229,24 @@ class TransformerModel(Model):
             indices = logits.argmax(dim=1).cpu().numpy()
         return self._decode_labels(indices)
 
+    def predict_proba(self, X: np.ndarray) -> list[dict]:
+        X_norm = self._transform_min_max(X)
+        X_tensor = torch.tensor(X_norm, dtype=torch.float32).to(self.device)
+
+        if not self.net:
+            raise ValueError("Model has not been trained yet. Call fit() before predict_proba().")
+        if not self.index_to_label:
+            raise ValueError("Label decoding failed. No index_to_label mapping found.")
+
+        self.net.eval()
+        with torch.no_grad():
+            logits = self.net(X_tensor)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()
+        return [
+            {self.index_to_label[i]: float(p) for i, p in enumerate(row)}
+            for row in probs
+        ]
+
     def save(self, path):
         if not self.net:
             raise ValueError("Model has not been trained yet. Nothing to save.")
@@ -263,7 +281,7 @@ if __name__ == "__main__":
         dim_feedforward=128,
         dropout=0.3,
         lr=1e-3,
-        epochs=15,
+        epochs=25,
         batch_size=64,
     )
 
