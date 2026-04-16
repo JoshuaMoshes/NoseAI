@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 import pandas as pd
 
+# Used AI to easily combine these csv files to organize them as train, test, and validation sets
 
 def combine_csvs(parent_folder: str, output_file: str = "testing-data.csv") -> None:
     parent_path = Path(parent_folder)
