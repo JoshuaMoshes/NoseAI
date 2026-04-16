@@ -3,6 +3,7 @@ import pandas as pd
 import pickle
 from .model_abc import Model, test_model
 
+# Used AI to make the code more modular
 
 class KNNModel(Model):
     def __init__(self, k: int = 5):
