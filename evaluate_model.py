@@ -2,24 +2,28 @@
 evaluate_model.py — universal model evaluation graphs for NoseAI
 
 Usage:
-    python evaluate_model.py <model.pkl> [--name NAME] [--out DIR]
+    python evaluate_model.py <module.ClassName> <model_path> [--name NAME] [--out DIR]
+
+    Example:
+        python evaluate_model.py models.mlr.MLRModel MLR-Model/mlr.pkl --name MLR
 
 Requirements:
-    - The pkl file must be a trained model with:
-        - model.feature_columns  (list of feature column names)
+    - The model class must implement the Model ABC (models/model_abc.py):
+        - ModelClass.load(path)  (classmethod that returns a fitted model instance)
         - model.predict(X)       (takes np.ndarray, returns array of class name strings)
+        - model.feature_columns  (list of feature column names)
     - Optional extras (graphs are skipped if absent):
         - model.loss_history     (list of per-epoch losses → loss curve)
         - model.W                (weight matrix → feature importance, MLR-specific)
         - model.predict_proba(X) (returns list of {class: prob} dicts → top-k accuracy bars)
 
 Outputs:
-    PNG files saved to --out directory (default: <model_name>_graphs/)
+    PNG files saved to --out directory (default: <name>_graphs/ next to the model file)
 """
 
 import argparse
+import importlib
 import os
-import pickle
 import sys
 
 import matplotlib
@@ -243,25 +247,35 @@ def fig_feature_importance(model, out, name):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate evaluation graphs for any NoseAI model.")
-    parser.add_argument("model_pkl", help="Path to the trained model pickle file")
+    parser.add_argument("model_class",
+                        help="Dotted path to the model class, e.g. models.mlr.MLRModel")
+    parser.add_argument("model_path", help="Path to the saved model file")
     parser.add_argument("--name", default=None,
-                        help="Display name for the model (default: filename without .pkl)")
+                        help="Display name for the model (default: class name)")
     parser.add_argument("--out", default=None,
-                        help="Output directory for graphs (default: <name>_graphs/)")
+                        help="Output directory for graphs (default: <name>_graphs/ next to model file)")
     args = parser.parse_args()
 
-    pkl_path = os.path.abspath(args.model_pkl)
-    if not os.path.exists(pkl_path):
-        print(f"Error: file not found: {pkl_path}", file=sys.stderr)
+    model_path = os.path.abspath(args.model_path)
+    if not os.path.exists(model_path):
+        print(f"Error: file not found: {model_path}", file=sys.stderr)
         sys.exit(1)
 
-    name = args.name or os.path.splitext(os.path.basename(pkl_path))[0]
-    out  = args.out  or os.path.join(os.path.dirname(pkl_path), f"{name}_graphs")
+    # Dynamically import the model class
+    module_path, class_name = args.model_class.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_path)
+        ModelClass = getattr(module, class_name)
+    except (ModuleNotFoundError, AttributeError) as e:
+        print(f"Error loading class '{args.model_class}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    name = args.name or class_name
+    out  = args.out  or os.path.join(os.path.dirname(model_path), f"{name}_graphs")
     os.makedirs(out, exist_ok=True)
 
-    print(f"Loading model from {pkl_path}…")
-    with open(pkl_path, "rb") as f:
-        model = pickle.load(f)
+    print(f"Loading model from {model_path}…")
+    model = ModelClass.load(model_path)
 
     train_df, test_df, nuts_df, spices_df = load_data()
     feat_cols = get_feature_cols(model, train_df)
